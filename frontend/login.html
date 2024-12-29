@@ -3,19 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>ShopEasy - Login</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <header>
         <div class="navbar">
             <h1 class="logo">ShopEasy</h1>
             <nav>
-                <a href="index.html">Home</a>
-                <a href="catalog.html">Catalog</a>
-                <a href="cart.html">Cart</a>
-                <a href="login.html">Login</a>
-                <a href="signup.html">Sign Up</a>
+                <a href="/index.html">Home</a>
+                <a href="/catalog.html">Catalog</a>
+                <a href="/cart.html">Cart</a>
+                <div id="userSection" class="user-section">
+                    <!-- User info will be dynamically inserted here -->
+                </div>
             </nav>
         </div>
     </header>
@@ -42,42 +46,145 @@
         <p>&copy; 2024 ShopEasy. All rights reserved.</p>
     </footer>
     <script>
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault(); // Prevent form default submission behavior
-
-            // Collect user credentials
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-
+        // Common authentication functions
+        async function updateUserSection() {
             try {
-                // Make the login API request
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                const response = await fetch('/api/auth/status', {
+                    credentials: 'include'
                 });
-
-                const result = await response.json();
-                const message = document.getElementById('message');
-
-                if (response.ok) {
-                    // On successful login, redirect to welcome.html with username
-                    message.style.color = 'green';
-                    message.textContent = result.message;
-                    alert('Login successful! Redirecting to your personalized page...');
-                    window.location.href = `welcome.html?username=${encodeURIComponent(username)}`;
+                const data = await response.json();
+                
+                const userSection = document.getElementById('userSection');
+                
+                if (data.authenticated) {
+                    const username = data.user?.username || sessionStorage.getItem('username');
+                    userSection.innerHTML = `
+                        <span class="username">Welcome, ${username}</span>
+                        <a href="#" onclick="logout()" class="logout-btn">Logout</a>
+                    `;
                 } else {
-                    // Handle login failure
-                    message.style.color = 'red';
-                    message.textContent = result.message || 'Login failed. Please try again.';
+                    sessionStorage.clear();
+                    userSection.innerHTML = `
+                        <a href="/login.html">Login</a>
+                        <a href="/signup.html">Sign Up</a>
+                    `;
                 }
             } catch (error) {
-                // Handle unexpected errors
+                console.error('Error updating user section:', error);
+                sessionStorage.clear();
+                document.getElementById('userSection').innerHTML = `
+                    <a href="/login.html">Login</a>
+                    <a href="/signup.html">Sign Up</a>
+                `;
+            }
+        }
+
+        async function logout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                
+                sessionStorage.clear();
+                
+                if (response.ok) {
+                    window.location.href = '/login.html';
+                } else {
+                    throw new Error('Logout failed');
+                }
+            } catch (error) {
+                console.error('Error during logout:', error);
+                window.location.reload();
+            }
+        }
+
+        // Check if user is already logged in
+        async function checkSession() {
+            try {
+                const response = await fetch('/api/auth/status', {
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                if (data.authenticated) {
+                    const returnTo = sessionStorage.getItem('returnTo') || '/index.html';
+                    sessionStorage.removeItem('returnTo');
+                    window.location.href = returnTo;
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                console.error('Session check error:', error);
+                return false;
+            }
+        }
+
+        // Handle login form submission
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const message = document.getElementById('message');
+
+            message.textContent = '';
+            
+            try {
+                sessionStorage.clear();
+                
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    const sessionCheck = await fetch('/api/auth/status', {
+                        credentials: 'include'
+                    });
+                    const sessionData = await sessionCheck.json();
+                    
+                    if (sessionData.authenticated) {
+                        message.style.color = 'green';
+                        message.textContent = 'Login successful!';
+                        
+                        sessionStorage.setItem('username', username);
+                        if (result.user && result.user.user_id) {
+                            sessionStorage.setItem('user_id', result.user.user_id);
+                        }
+                        
+                        // Add small delay to ensure session is properly set
+                        setTimeout(() => {
+                            const returnTo = sessionStorage.getItem('returnTo') || '/index.html';
+                            sessionStorage.removeItem('returnTo');
+                            window.location.href = returnTo;
+                        }, 100);
+                    } else {
+                        throw new Error('Session validation failed');
+                    }
+                } else {
+                    message.style.color = 'red';
+                    message.textContent = result.message || 'Invalid credentials';
+                }
+            } catch (error) {
                 console.error('Error:', error);
-                const message = document.getElementById('message');
                 message.style.color = 'red';
                 message.textContent = 'An error occurred. Please try again.';
+                sessionStorage.clear();
             }
+        });
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkSession();
+            await updateUserSection();
         });
     </script>
 </body>

@@ -1,22 +1,19 @@
-from flask import Flask, jsonify, send_from_directory
-from flask_cors import CORS
-from routes.auth_routes import auth_bp
-from routes.product_routes import product_bp
-from routes.cart_routes import cart_bp
-from routes.order_routes import order_bp
-import logging
 import os
-import sys
 import time
+import logging
+import sys
+from datetime import timedelta
+from flask import Flask, jsonify, send_from_directory, session, request
+from flask_cors import CORS
+from flask_session import Session
 from dotenv import load_dotenv
+from functools import wraps
+
 
 # Configure logging
 log_format = "%(asctime)s - %(levelname)s - %(message)s"
-logging.basicConfig(level=logging.INFO, format=log_format)
+logging.basicConfig(level=logging.DEBUG, format=log_format)  # Changed to DEBUG level
 logger = logging.getLogger(__name__)
-
-# Add the parent directory to Python's module search path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Load environment variables
 load_dotenv()
@@ -24,70 +21,126 @@ load_dotenv()
 # Track uptime for health check
 start_time = time.time()
 
+# Login required decorator
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        logger.debug(f"Session state in decorator: {session}")
+        if 'user_id' not in session:
+            logger.warning("User not authenticated, redirecting to login")
+            return jsonify({"message": "Authentication required"}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
 def create_app():
-    """
-    Factory function to create and configure the Flask application.
-    Returns:
-        The configured Flask app instance.
-    """
     app = Flask(__name__)
 
-    # Enable Cross-Origin Resource Sharing (CORS)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # Enhanced session configuration
+    app.secret_key = os.getenv('SECRET_KEY', 'default_secret_key')
+    session_file_dir = os.getenv('SESSION_FILE_DIR', '/tmp/flask_sessions')
+    os.makedirs(session_file_dir, exist_ok=True)
 
-    # Serve static frontend files
+    app.config.update(
+    SECRET_KEY=os.getenv('SECRET_KEY', 'default_secret_key'),
+    SESSION_TYPE='filesystem',
+    SESSION_FILE_DIR=os.getenv('SESSION_FILE_DIR', '/tmp/flask_sessions'),
+    SESSION_PERMANENT=True,
+    PERMANENT_SESSION_LIFETIME=timedelta(days=1),
+    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax'
+    )
+    Session(app)
+
+    # More permissive CORS configuration for development
+    CORS(app,
+         resources={r"/*": {  # Changed from /api/* to /* to allow all routes
+             "origins": ["http://localhost:5000", "http://127.0.0.1:5000"],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "allow_credentials": True
+         }},
+         supports_credentials=True,
+         expose_headers=['Set-Cookie'],
+         allow_headers=['Content-Type', 'Authorization'])
+
+    # Debug middleware
+    @app.before_request
+    def before_request():
+        logger.debug(f"Incoming request: {request.method} {request.path}")
+        logger.debug(f"Session contents: {session}")
+        logger.debug(f"Request cookies: {request.cookies}")
+
+    @app.after_request
+    def after_request(response):
+        logger.debug(f"Response status: {response.status_code}")
+        logger.debug(f"Response cookies: {response.headers.get('Set-Cookie')}")
+        return response
+
+    # Rest of your routes...
+    frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend"))
+    if not os.path.exists(frontend_path):
+        logger.error(f"Frontend directory not found: {frontend_path}")
+        raise FileNotFoundError(f"Frontend directory not found: {frontend_path}")
+
     @app.route("/<path:filename>")
     def serve_static(filename):
-        """Serve static files like HTML, CSS, or JS from the frontend directory."""
-        frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
-        if not os.path.isfile(os.path.join(frontend_path, filename)):
+        logger.debug(f"Serving static file: {filename}")
+        file_path = os.path.join(frontend_path, filename)
+        if not os.path.isfile(file_path):
+            logger.warning(f"File not found: {filename}")
             return jsonify({"message": "File not found"}), 404
         return send_from_directory(frontend_path, filename)
 
     @app.route("/")
     def serve_index():
-        """Serve the default index.html from the frontend directory."""
-        frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
+        logger.debug("Serving index.html")
         return send_from_directory(frontend_path, "index.html")
 
-    # Add a health check endpoint
     @app.route("/api/health", methods=["GET"])
     def health_check():
         uptime = time.time() - start_time
+        session_data = {
+            "username": session.get("username", "Not set"),
+            "user_id": session.get("user_id", "Not set")
+        }
+        logger.debug(f"Health check - Session data: {session_data}")
         return jsonify({
             "status": "healthy",
-            "uptime": f"{uptime:.2f} seconds"
+            "uptime": f"{uptime:.2f} seconds",
+            "session_active": "username" in session,
+            "session_data": session_data
         }), 200
 
     # Register Blueprints
+    from routes.auth_routes import auth_bp
+    from routes.product_routes import product_bp
+    from routes.cart_routes import cart_bp
+    from routes.order_routes import order_bp
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(product_bp, url_prefix="/api")
     app.register_blueprint(cart_bp, url_prefix="/api")
     app.register_blueprint(order_bp, url_prefix="/api/orders")
 
-    # Custom Error Handlers
+    # Error Handlers
     @app.errorhandler(404)
     def not_found(error):
+        logger.warning(f"Resource not found: {request.path}")
         return jsonify({"message": "Resource not found"}), 404
 
     @app.errorhandler(500)
     def internal_error(error):
+        logger.error(f"Internal server error: {error}")
         return jsonify({"message": "Internal server error"}), 500
 
     @app.errorhandler(400)
     def bad_request(error):
+        logger.warning(f"Bad request: {error}")
         return jsonify({"message": "Bad request"}), 400
 
     return app
 
-
 if __name__ == "__main__":
-    # Create and configure the Flask app
     app = create_app()
-
-    # Determine debug mode from the environment
     debug_mode = os.getenv("FLASK_DEBUG", "True").lower() == "true"
     logger.info(f"Starting Flask app in {'debug' if debug_mode else 'production'} mode")
-
-    # Run the app
-    app.run(debug=debug_mode, host="0.0.0.0", port=5000)
+    app.run(debug=debug_mode, host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

@@ -3,19 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>ShopEasy - Cart</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <header>
         <div class="navbar">
             <h1 class="logo">ShopEasy</h1>
             <nav>
-                <a href="index.html">Home</a>
-                <a href="catalog.html">Catalog</a>
-                <a href="cart.html">Cart</a>
-                <a href="login.html">Login</a>
-                <a href="signup.html">Sign Up</a>
+                <a href="/index.html">Home</a>
+                <a href="/catalog.html">Catalog</a>
+                <a href="/cart.html">Cart</a>
+                <div id="userSection" class="user-section">
+                    <!-- User info will be dynamically inserted here -->
+                </div>
             </nav>
         </div>
     </header>
@@ -26,73 +30,210 @@
             <div id="cartTotalContainer" style="text-align: center; font-size: 1.2em; margin-top: 1em;">
                 <p id="cartTotal" class="cart-total"></p>
             </div>
+            <div id="orderButtonContainer" style="text-align: center; margin-top: 20px;">
+                <button onclick="placeOrder()" class="place-order-btn" style="background-color: #28a745; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer;">
+                    Place Order
+                </button>
+            </div>
         </section>
     </main>
-    
     <footer>
         <p>&copy; 2024 ShopEasy. All rights reserved.</p>
     </footer>
     <script>
+        // Check authentication status
+        async function checkAuthentication() {
+            try {
+                const response = await fetch('/api/auth/status', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                return data.authenticated;
+            } catch (error) {
+                console.error('Auth check error:', error);
+                return false;
+            }
+        }
+
+        // Update user section
+        async function updateUserSection() {
+            try {
+                const response = await fetch('/api/auth/status', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                
+                const userSection = document.getElementById('userSection');
+                
+                if (data.authenticated) {
+                    const username = data.user?.username || sessionStorage.getItem('username');
+                    userSection.innerHTML = `
+                        <span class="username">Welcome, ${username}</span>
+                        <a href="#" onclick="logout()" class="logout-btn">Logout</a>
+                    `;
+                } else {
+                    sessionStorage.clear();
+                    userSection.innerHTML = `
+                        <a href="/login.html">Login</a>
+                        <a href="/signup.html">Sign Up</a>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error updating user section:', error);
+                sessionStorage.clear();
+                document.getElementById('userSection').innerHTML = `
+                    <a href="/login.html">Login</a>
+                    <a href="/signup.html">Sign Up</a>
+                `;
+            }
+        }
+
+        // Load cart items
         async function loadCart() {
             try {
-                const response = await fetch('/api/cart?user_id=1'); // Replace with dynamic user ID
-                if (!response.ok) {
-                    throw new Error('Failed to fetch cart data');
-                }
-                const data = await response.json();
+                const response = await fetch('/api/cart', {
+                    credentials: 'include',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
 
+                if (response.status === 401) {
+                    sessionStorage.setItem('returnTo', '/cart.html');
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const data = await response.json();
                 const cartItemsDiv = document.getElementById("cartItems");
                 const cartTotalDiv = document.getElementById("cartTotal");
 
                 if (data.cart_items && data.cart_items.length > 0) {
                     let total = 0;
-                    cartItemsDiv.innerHTML = ''; // Clear existing items
+                    cartItemsDiv.innerHTML = '';
+                    
                     data.cart_items.forEach(item => {
-                        total += item.total_price;
+                        total += item.price * item.quantity;
                         cartItemsDiv.innerHTML += `
                             <div class="cart-card">
                                 <h3>${item.name}</h3>
-                                <p><strong>Price:</strong> $${item.price.toFixed(2)}</p>
-                                <p><strong>Quantity:</strong> ${item.quantity}</p>
-                                <p><strong>Total:</strong> $${item.total_price.toFixed(2)}</p>
+                                <p>Price: $${parseFloat(item.price).toFixed(2)}</p>
+                                <p>Quantity: ${item.quantity}</p>
+                                <p>Total: $${(item.price * item.quantity).toFixed(2)}</p>
                                 <button onclick="removeFromCart(${item.product_id})" class="remove-btn">Remove</button>
                             </div>
                         `;
                     });
-                    cartTotalDiv.innerHTML = `Cart Total: <strong>$${total.toFixed(2)}</strong>`;
+                    cartTotalDiv.innerHTML = `Cart Total: $${total.toFixed(2)}`;
                 } else {
                     cartItemsDiv.innerHTML = "<p class='empty-cart'>Your cart is empty.</p>";
                     cartTotalDiv.innerText = '';
                 }
             } catch (error) {
                 console.error("Error loading cart:", error);
-                document.getElementById("cartItems").innerHTML = "<p class='error-message'>Failed to load cart. Please try again later.</p>";
+                cartItemsDiv.innerHTML = "<p class='error-message'>Failed to load cart.</p>";
             }
         }
 
-        async function removeFromCart(productId) {
+        // Place order function
+        async function placeOrder() {
             try {
-                const response = await fetch('/api/cart', {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ user_id: 1, product_id: productId }), // Replace user_id dynamically
+                const isAuthenticated = await checkAuthentication();
+                if (!isAuthenticated) {
+                    sessionStorage.setItem('returnTo', '/cart.html');
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const userId = sessionStorage.getItem('user_id');
+                if (!userId) {
+                    alert('Session error. Please login again.');
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const cartResponse = await fetch('/api/cart', {
+                    credentials: 'include'
                 });
-                if (response.ok) {
-                    alert("Product removed from cart!");
-                    loadCart(); // Reload cart after removal
+
+                const cartData = await cartResponse.json();
+                
+                if (!cartData.cart_items || cartData.cart_items.length === 0) {
+                    alert('Your cart is empty');
+                    return;
+                }
+
+                const totalAmount = cartData.cart_items.reduce((sum, item) => 
+                    sum + (parseFloat(item.price) * item.quantity), 0);
+                
+                // Store order total for success page
+                sessionStorage.setItem('orderTotal', totalAmount.toFixed(2));
+                
+                const orderData = {
+                    user_id: parseInt(userId),
+                    total_amount: totalAmount,
+                    items: cartData.cart_items.map(item => ({
+                        product_id: parseInt(item.product_id),
+                        quantity: parseInt(item.quantity)
+                    }))
+                };
+
+                console.log('Sending order data:', orderData);
+
+                const orderResponse = await fetch('/api/orders', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
+                if (orderResponse.ok) {
+                    alert('Order placed successfully!');
+                    window.location.href = '/order-success.html';
                 } else {
-                    alert("Failed to remove product from cart.");
+                    const errorData = await orderResponse.json();
+                    throw new Error(errorData.message || 'Failed to place order');
                 }
             } catch (error) {
-                console.error("Error removing product from cart:", error);
-                alert("An error occurred. Please try again.");
+                console.error('Error placing order:', error);
+                alert('Failed to place order. Please try again.');
             }
         }
 
-        // Load the cart when the page loads
-        document.addEventListener('DOMContentLoaded', loadCart);
+        // Logout function
+        async function logout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                
+                sessionStorage.clear();
+                
+                if (response.ok) {
+                    window.location.href = '/login.html';
+                } else {
+                    throw new Error('Logout failed');
+                }
+            } catch (error) {
+                console.error('Error during logout:', error);
+                window.location.reload();
+            }
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', async () => {
+            const isAuthenticated = await checkAuthentication();
+            if (isAuthenticated) {
+                await updateUserSection();
+                await loadCart();
+            } else {
+                sessionStorage.setItem('returnTo', '/cart.html');
+                window.location.href = '/login.html';
+            }
+        });
     </script>
 </body>
 </html>

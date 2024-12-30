@@ -397,22 +397,15 @@ docker compose -f docker/docker-compose.yaml exec db mysql -u subbu -p
 4. Run integration tests
 5. Deploy to production
 
-## Contact Information
+## 11. Project Setup and Deployment Guide
 
-For technical support:
-- Email: support@shopeasy.com
-- Documentation: docs.shopeasy.com
-- GitHub Issues: github.com/yourusername/shopeasy/issues
-
-## 9. Project Setup and Deployment Guide
-
-### 9.1 Prerequisites
+### 11.1 Prerequisites
 - Git
 - Docker
 - Docker Compose
 - Make (optional, for Makefile commands)
 
-### 9.2 Project Setup Steps
+### 11.2 Project Setup Steps
 
 1. **Clone the Repository**
 ```bash
@@ -503,7 +496,7 @@ docker compose -f docker/docker-compose.yaml down -v
 docker compose -f docker/docker-compose.yaml up --build
 ```
 
-### 9.3 Initial Data and Testing
+### 11.3 Initial Data and Testing
 1. Default test account:
    - Username: subbu
    - Password: admin@1234
@@ -515,7 +508,7 @@ docker compose -f docker/docker-compose.yaml up --build
    - Add items to cart
    - Place test order
 
-### 9.4 Common Issues and Solutions
+### 11.4 Common Issues and Solutions
 
 1. **Database Connection Issues**
 ```bash
@@ -547,7 +540,7 @@ netstat -tulpn | grep 3306
 # Change ports in docker-compose.yaml if needed
 ```
 
-### 9.5 Development Commands
+### 11.5 Development Commands
 
 1. **Access Container Shell**
 ```bash
@@ -576,7 +569,7 @@ docker compose -f docker/docker-compose.yaml restart backend
 docker compose -f docker/docker-compose.yaml logs -f backend
 ```
 
-### 9.6 Production Deployment Notes
+### 11.6 Production Deployment Notes
 
 1. **Security Considerations**
 - Update SECRET_KEY in .env
@@ -597,4 +590,3 @@ docker compose -f docker/docker-compose.yaml logs -f backend
 - Configure proper cache strategy
 - Set up proper monitoring and alerts
 
-[Rest of the document remains the same...]

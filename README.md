@@ -12,6 +12,7 @@
 8. [Testing Strategy](#8-testing-strategy)
 9. [Troubleshooting Guide](#9-troubleshooting-guide)
 10. [Development Guidelines](#10-development-guidelines)
+11. [Project Setup and Deployment Guide](#11-project-setup-and-deployment-guide)
 
 ## 1. Introduction
 
